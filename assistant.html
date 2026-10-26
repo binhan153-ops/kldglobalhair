@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trợ lý soạn trả lời KLD</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#667085; --line:#e3e6ea; --accent:#128c7e; --accent-text:#fff; --warn-bg:#fff6e5; --warn-line:#f5c26b; --err:#c0392b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1d2128; --text:#e8eaed; --muted:#9aa3ae; --line:#2e333b; --accent:#25d3b0; --accent-text:#0b1f1b; --warn-bg:#3a2f1a; --warn-line:#8a6a2a; --err:#ff7b6b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:4px 0 2px; }
+  .sub { color:var(--muted); font-size:14px; margin:0 0 16px; }
+  label { display:block; font-weight:600; margin:14px 0 6px; }
+  .hint { font-weight:400; color:var(--muted); font-size:13px; }
+  textarea, input { width:100%; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--text); font:inherit; }
+  textarea { resize:vertical; }
+  #message { min-height:140px; }
+  #notes { min-height:70px; }
+  .row { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  button { border:0; border-radius:10px; padding:12px 16px; font:inherit; font-weight:600; cursor:pointer; }
+  .primary { background:var(--accent); color:var(--accent-text); flex:1; }
+  .ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  button:disabled { opacity:.6; cursor:wait; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-top:12px; }
+  .card h2 { font-size:14px; color:var(--muted); margin:0 0 6px; font-weight:600; }
+  .card p { margin:0; white-space:pre-wrap; }
+  .reply p { font-size:17px; }
+  .warn { background:var(--warn-bg); border-color:var(--warn-line); }
+  .err { color:var(--err); margin-top:12px; }
+  .lang { font-size:13px; color:var(--muted); }
+  #keyBox { margin-bottom:8px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Trợ lý soạn trả lời</h1>
+  <p class="sub">Dán tin của khách, AI giải thích bằng tiếng Việt và soạn sẵn câu trả lời để Anh copy gửi.</p>
+
+  <div id="keyBox" class="card hidden">
+    <h2>Mật khẩu (nhập một lần)</h2>
+    <input id="key" type="password" autocomplete="current-password" placeholder="Mật khẩu ASSISTANT_KEY">
+    <div class="row"><button class="primary" id="saveKey">Lưu mật khẩu</button></div>
+  </div>
+
+  <label for="message">Tin nhắn của khách <span class="hint">(dán nguyên văn, có thể dán cả mấy tin trước)</span></label>
+  <textarea id="message" placeholder="Ví dụ: Hi, how much for 20 inch tape in, color 613? I need 2kg to UK."></textarea>
+
+  <label for="notes">Ghi chú cho AI <span class="hint">(không bắt buộc, viết tiếng Việt)</span></label>
+  <textarea id="notes" placeholder="Ví dụ: tape-in 20 inch màu 613 giá 95$/100g, có sẵn hàng, gửi DHL"></textarea>
+
+  <div class="row">
+    <button class="primary" id="draft">Soạn trả lời</button>
+    <button class="ghost" id="shorter">Ngắn hơn</button>
+  </div>
+
+  <div id="error" class="err hidden"></div>
+
+  <div id="result" class="hidden">
+    <div class="card"><h2>Khách hỏi gì <span class="lang" id="lang"></span></h2><p id="meaning"></p></div>
+    <div class="card reply">
+      <h2>Câu trả lời gửi khách</h2>
+      <p id="reply"></p>
+      <div class="row"><button class="primary" id="copy">Copy câu trả lời</button></div>
+    </div>
+    <div class="card"><h2>Nghĩa tiếng Việt của câu trả lời</h2><p id="replyVi"></p></div>
+    <div class="card warn hidden" id="checkCard"><h2>⚠️ Kiểm tra trước khi gửi</h2><p id="check"></p></div>
+    <div class="row"><button class="ghost" id="clear">Xóa, soạn tin mới</button></div>
+  </div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+    del: (k) => { try { localStorage.removeItem(k); } catch {} },
+  };
+  let key = store.get('kldAssistantKey');
+  if (!key) $('keyBox').classList.remove('hidden');
+
+  $('saveKey').onclick = () => {
+    key = $('key').value.trim();
+    if (!key) return;
+    store.set('kldAssistantKey', key);
+    $('keyBox').classList.add('hidden');
+  };
+
+  function showError(text) {
+    $('error').textContent = text;
+    $('error').classList.remove('hidden');
+  }
+
+  async function draft(variant) {
+    $('error').classList.add('hidden');
+    if (!key) { $('keyBox').classList.remove('hidden'); return showError('Anh nhập mật khẩu trước nhé.'); }
+    const message = $('message').value.trim();
+    if (!message) return showError('Anh dán tin nhắn của khách vào ô trên trước nhé.');
+    const buttons = [$('draft'), $('shorter')];
+    buttons.forEach((b) => (b.disabled = true));
+    $('draft').textContent = 'Đang soạn…';
+    try {
+      const r = await fetch('/assistant/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-assistant-key': key },
+        body: JSON.stringify({ message, notes: $('notes').value.trim(), variant }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 401) {
+        store.del('kldAssistantKey'); key = '';
+        $('keyBox').classList.remove('hidden');
+      }
+      if (!r.ok) return showError(data.error || 'Có lỗi, Anh thử lại nhé.');
+      $('lang').textContent = data.customer_language ? '· ' + data.customer_language : '';
+      $('meaning').textContent = data.meaning_vi;
+      $('reply').textContent = data.reply;
+      $('replyVi').textContent = data.reply_vi;
+      $('check').textContent = data.check_vi;
+      $('checkCard').classList.toggle('hidden', !data.check_vi);
+      $('result').classList.remove('hidden');
+      $('copy').textContent = 'Copy câu trả lời';
+      $('result').scrollIntoView({ behavior: 'smooth' });
+    } catch {
+      showError('Không kết nối được máy chủ, Anh kiểm tra mạng rồi thử lại.');
+    } finally {
+      buttons.forEach((b) => (b.disabled = false));
+      $('draft').textContent = 'Soạn trả lời';
+    }
+  }
+
+  $('draft').onclick = () => draft('');
+  $('shorter').onclick = () => draft('shorter');
+
+  $('copy').onclick = async () => {
+    const text = $('reply').textContent;
+    try { await navigator.clipboard.writeText(text); }
+    catch {
+      const t = document.createElement('textarea');
+      t.value = text; document.body.appendChild(t); t.select();
+      document.execCommand('copy'); t.remove();
+    }
+    $('copy').textContent = 'Đã copy ✓ – dán vào WhatsApp';
+  };
+
+  $('clear').onclick = () => {
+    $('message').value = ''; $('notes').value = '';
+    $('result').classList.add('hidden');
+    $('message').focus();
+  };
+</script>
+</body>
+</html>

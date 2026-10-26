@@ -1,0 +1,21 @@
+{
+  "name": "ig-autoreply",
+  "version": "1.0.0",
+  "description": "Bot trả lời tự động Instagram (DM + comment) qua API chính thức của Meta",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test:dm": "node test/simulate.js dm",
+    "test:comment": "node test/simulate.js comment",
+    "test:voice": "node test/voice.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.137.0",
+    "express": "^4.21.2",
+    "nodemailer": "^10.1.7"
+  }
+}
